@@ -133,16 +133,58 @@ const runSocketIOSample = function() {
 
     window.onload = function() {
         var simulcast = getParameterByName('simulcast') || false;
+        var shareScreen = getParameterByName('screen') || false;
         myRoom = getParameterByName('room');
         var isHttps = (location.protocol === 'https:');
         var mediaUrl = getParameterByName('url');
-        createToken(myRoom, 'user', 'guest', function(response) {
+        var isPublish = getParameterByName('publish');
+        createToken(myRoom, 'user', 'presenter', function(response) {
             var token = response;
             conference.join(token).then(resp => {
                 myId = resp.self.id;
                 myRoom = resp.id;
                 if(mediaUrl){
                      startStreamingIn(myRoom, mediaUrl);
+                }
+                if (isPublish !== 'false') {
+                    // audioConstraintsForMic
+                    let audioConstraints = new Owt.Base.AudioTrackConstraints(Owt.Base.AudioSourceInfo.MIC);
+                    // videoConstraintsForCamera
+                    let videoConstraints = new Owt.Base.VideoTrackConstraints(Owt.Base.VideoSourceInfo.CAMERA);
+                    if (shareScreen) {
+                        // audioConstraintsForScreen
+                        audioConstraints = new Owt.Base.AudioTrackConstraints(Owt.Base.AudioSourceInfo.SCREENCAST);
+                        // videoConstraintsForScreen
+                        videoConstraints = new Owt.Base.VideoTrackConstraints(Owt.Base.VideoSourceInfo.SCREENCAST);
+                    }
+
+                    let mediaStream;
+                    Owt.Base.MediaStreamFactory.createMediaStream(new Owt.Base.StreamConstraints(
+                        audioConstraints, videoConstraints)).then(stream => {
+                        let publishOption;
+                        if (simulcast) {
+                            publishOption = {video:[
+                                {rid: 'q', active: true/*, scaleResolutionDownBy: 4.0*/},
+                                {rid: 'h', active: true/*, scaleResolutionDownBy: 2.0*/},
+                                {rid: 'f', active: true}
+                            ]};
+                        }
+                        mediaStream = stream;
+                        localStream = new Owt.Base.LocalStream(
+                            mediaStream, new Owt.Base.StreamSourceInfo(
+                                'mic', 'camera'));
+                        $('.local video').get(0).srcObject = stream;
+                        conference.publish(localStream, publishOption).then(publication => {
+                            publicationGlobal = publication;
+                            mixStream(myRoom, publication.id, 'common')
+                            publication.addEventListener('error', (err) => {
+                                console.log('Publication error: ' + err.error.message);
+                            });
+                        });
+                    }, err => {
+                        console.error('Failed to create MediaStream, ' +
+                            err);
+                    });
                 }
                 var streams = resp.remoteStreams;
                 for (const stream of streams) {
